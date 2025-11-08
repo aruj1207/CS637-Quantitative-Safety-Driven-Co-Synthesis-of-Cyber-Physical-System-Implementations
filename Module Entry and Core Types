@@ -1,0 +1,44 @@
+module CPSCoSynth
+using LinearAlgebra, StaticArrays, Random, StaticArrays, DelimitedFiles
+
+# --- Core Data Structures ---
+
+"A plant/controller in augmented form z[t+1] = M_hit*z[t] (hit) or M_miss*z[t] (miss)."
+struct Plant
+    name::Symbol
+    M_hit::AbstractMatrix{Float64}
+    M_miss::AbstractMatrix{Float64}
+    x0_aug::Vector{Float64}               # initial augmented state [x; u_prev]
+    safety_metric::Function               # dis(z_t, z_nom_t) → ℝ⁺
+    safe_bound::Float64                   # allowed deviation (d̄)
+    n_x::Int
+end
+
+"Periodic task with weakly-hard constraint (m,k)."
+struct Task
+    name::Symbol
+    T::Float64           # period (s)
+    D::Float64           # deadline (use T)
+    C::Float64           # WCET (s)
+    m::Int; k::Int       # (m,k) constraint (used in optimization)
+    is_control::Bool
+end
+
+# --- Exports ---
+export Plant, Task
+
+# Include helper files
+include("models.jl")
+include("weaklyhard.jl")
+include("reachability.jl")
+include("deviation.jl")
+include("cosynthesis.jl")
+
+# Include placeholder schedulers
+include("schedulers/jobclass_online.jl")
+include("schedulers/automaton_equalT.jl")
+
+# Expose key functions
+export all_control_tasks, safe_constraints, pareto_cosynth
+export scheduler_jobclass_test, scheduler_automaton_test
+end # module

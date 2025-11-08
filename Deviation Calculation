@@ -1,0 +1,38 @@
+# This file handles deviation calculation using the bounding boxes.
+
+using LinearAlgebra
+import ..CPSCoSynth: Plant
+import ..CPSCoSynth: nominal, max_deviation
+
+"Nominal run under all hits."
+function nominal(Mhit::AbstractMatrix, z0::Vector{Float64}, H::Int)
+    zs = Vector{typeof(z0)}(undef, H + 1); zs[1] = z0
+    for t in 1:H; zs[t+1] = Mhit * zs[t]; end
+    return zs
+end
+
+"""
+Max deviation between reachable boxes and nominal points using the plant's metric.
+Approximate deviation by testing all box corners.
+"""
+function max_deviation(boxes_over_time::Vector{Tuple{Vector{Float64},Vector{Float64}}}, 
+                       z_nom::Vector{Vector{Float64}}, 
+                       metric::Function)
+    dev = 0.0
+    
+    for t in 1:length(z_nom)
+        lo, hi = boxes_over_time[t]
+        z_nom_t = z_nom[t]
+        N = length(lo)
+
+        # Generate all 2^N corners of the box at time t
+        corners_iterator = Iterators.product(([lo[i], hi[i]] for i=1:N)...)
+        
+        # Calculate the metric deviation for the worst-case corner
+        d_t = maximum(metric(collect(c), z_nom_t) for c in corners_iterator)
+        
+        # The deviation is the maximum observed metric distance across the time horizon
+        dev = max(dev, d_t)
+    end
+    return dev
+end

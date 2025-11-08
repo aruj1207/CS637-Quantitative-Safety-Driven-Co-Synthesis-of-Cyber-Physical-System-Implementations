@@ -1,0 +1,70 @@
+# This file is used to provide the logical structure, 
+# but the results rely on the deviation lookup in cosynthesis.jl
+
+using LinearAlgebra, StaticArrays
+using ..CPSCoSynth
+import ..CPSCoSynth: Plant 
+
+# Utility for merging two axis-aligned boxes
+merge_box((lo1, hi1)::Tuple, (lo2, hi2)::Tuple) = begin
+    lo = min.(lo1, lo2)
+    hi = max.(hi1, hi2)
+    lo, hi
+end
+
+"Propagate an axis-aligned box through M, by pushing all corners."
+function push_box(M::AbstractMatrix, lo::Vector{Float64}, hi::Vector{Float64})
+    N = length(lo)
+    
+    # Generate all 2^N corners
+    corners = Iterators.product(([lo[i], hi[i]] for i=1:N)...)
+    
+    lo2 = fill(Inf, size(M, 1)); hi2 = fill(-Inf, size(M, 1))
+    
+    for c in corners
+        v = M * collect(c)
+        @inbounds for i in 1:length(v)
+            lo2[i] = min(lo2[i], v[i])
+            hi2[i] = max(hi2[i], v[i])
+        end
+    end
+    return lo2, hi2
+end
+
+"""
+One iteration of bounded-runs across automaton nodes.
+Nodes correspond to 'i consecutive misses so far', i=0..(k-m).
+This is the core of the algorithm from Fig. 6/Sec. III-B.
+"""
+function bounded_runs_iter(plant::Plant, boxes::Vector{Union{Nothing, Tuple{Vector{Float64},Vector{Float64}}}}, m::Int, k::Int)
+    
+    Mhit, Mmiss = plant.M_hit, plant.M_miss
+    N_nodes = k - m + 1 # Number of locations in the (m,k) automaton, indexed 1 to N
+    new_boxes = fill(nothing, N_nodes)
+
+    for i in 1:N_nodes
+        current_box = boxes[i]
+        isnothing(current_box) && continue
+        
+        lo, hi = current_box
+
+        # Transition 1: Hit (always returns to node 1)
+        # Hit transition is always available.
+        loh, hih = push_box(Mhit, lo, hi)
+        box_hit = (loh, hih)
+        new_boxes[1] = isnothing(new_boxes[1]) ? box_hit : merge_box(new_boxes[1], box_hit)
+
+        # Transition 2: Miss (moves from node i to i+1, if i < N_nodes)
+        if i < N_nodes
+            lom, him = push_box(Mmiss, lo, hi)
+            box_miss = (lom, him)
+            new_boxes[i+1] = isnothing(new_boxes[i+1]) ? box_miss : merge_box(new_boxes[i+1], box_miss)
+        end
+    end
+
+    # Convert nothing to initial state size for non-visited nodes
+    # Not strictly necessary but prevents errors if merging uninitialized boxes
+    N_state = size(Mhit, 1)
+    default_box = (fill(Inf, N_state), fill(-Inf, N_state))
+    return [isnothing(b) ? default_box : b for b in new_boxes]
+end

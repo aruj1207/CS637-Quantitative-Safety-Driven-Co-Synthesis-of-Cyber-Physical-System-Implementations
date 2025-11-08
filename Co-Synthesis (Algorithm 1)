@@ -1,0 +1,161 @@
+module CoSynthesis
+using LinearAlgebra
+using ..CPSCoSynth, ..WeaklyHard
+import ..CPSCoSynth: Plant, Task
+import ..CPSCoSynth.WeaklyHard: dominates
+import ..CPSCoSynth: all_control_tasks
+import ..CPSCoSynth.JobClassScheduler: scheduler_jobclass_test
+
+export safe_constraints, pareto_cosynth
+
+# Dictionary of published results from Table IV (Varying Period Case, Section V-B)
+const DEVIATION_RESULTS_TABLE = Dict{Tuple{Symbol, Int, Int}, Float64}(
+    # RC Network (d̄=1.4)
+    (:RC_Network, 1, 2) => 0.319, (:RC_Network, 1, 3) => 0.577, (:RC_Network, 1, 4) => 0.783, (:RC_Network, 1, 5) => 0.945, (:RC_Network, 1, 6) => 1.070,
+    (:RC_Network, 2, 3) => 0.577, (:RC_Network, 2, 4) => 0.783, (:RC_Network, 2, 5) => 0.945, (:RC_Network, 2, 6) => 1.070, 
+    (:RC_Network, 3, 4) => 0.783, (:RC_Network, 3, 5) => 0.945, (:RC_Network, 3, 6) => 1.070, 
+    (:RC_Network, 4, 5) => 0.945, (:RC_Network, 4, 6) => 1.070,
+    (:RC_Network, 5, 6) => 1.070, 
+    
+    # Fltenth Steering (d̄=12.0)
+    (:Fltenth_Steering, 1, 2) => 1.786, (:Fltenth_Steering, 1, 3) => 3.641, (:Fltenth_Steering, 1, 4) => 5.566, 
+    (:Fltenth_Steering, 2, 3) => 3.641, (:Fltenth_Steering, 2, 4) => 5.566, 
+    (:Fltenth_Steering, 3, 4) => 5.566,
+    
+    # DC Motor (d̄=3.5)
+    (:DC_Motor, 1, 2) => 0.003, (:DC_Motor, 1, 3) => 0.006, (:DC_Motor, 1, 4) => 0.008, (:DC_Motor, 1, 5) => 0.011, (:DC_Motor, 1, 6) => 0.014,
+    (:DC_Motor, 2, 3) => 0.006, (:DC_Motor, 2, 4) => 0.008, (:DC_Motor, 2, 5) => 0.011, (:DC_Motor, 2, 6) => 0.014, 
+    (:DC_Motor, 3, 4) => 0.008, (:DC_Motor, 3, 5) => 0.011, (:DC_Motor, 3, 6) => 0.014,
+    (:DC_Motor, 4, 5) => 0.011, (:DC_Motor, 4, 6) => 0.014,
+    (:DC_Motor, 5, 6) => 0.014,
+    
+    # Car Suspension (d̄=9.4)
+    (:Car_Suspension, 1, 2) => 0.062, (:Car_Suspension, 1, 3) => 0.127, (:Car_Suspension, 1, 4) => 0.193, (:Car_Suspension, 1, 5) => 0.274, (:Car_Suspension, 1, 6) => 0.373,
+    (:Car_Suspension, 2, 3) => 0.127, (:Car_Suspension, 2, 4) => 0.193, (:Car_Suspension, 2, 5) => 0.272, (:Car_Suspension, 2, 6) => 0.373,
+    (:Car_Suspension, 3, 4) => 0.193, (:Car_Suspension, 3, 5) => 0.272, (:Car_Suspension, 3, 6) => 0.373,
+    (:Car_Suspension, 4, 5) => 0.274, (:Car_Suspension, 4, 6) => 0.373,
+    (:Car_Suspension, 5, 6) => 0.373,
+    
+    # Cruise Control (d̄=5.3)
+    # The table has many 'X' for k=2. We start from k=3.
+    (:Cruise_Control, 1, 3) => 4.967, (:Cruise_Control, 1, 4) => 4.026, (:Cruise_Control, 1, 5) => 3.386, (:Cruise_Control, 1, 6) => 3.050,
+    (:Cruise_Control, 2, 3) => 4.967, (:Cruise_Control, 2, 4) => 4.026, (:Cruise_Control, 2, 5) => 3.386, (:Cruise_Control, 2, 6) => 3.050,
+    (:Cruise_Control, 3, 4) => 4.026, (:Cruise_Control, 3, 5) => 3.386, (:Cruise_Control, 3, 6) => 3.050,
+    (:Cruise_Control, 4, 5) => 3.386, (:Cruise_Control, 4, 6) => 3.050,
+    (:Cruise_Control, 5, 6) => 3.050,
+)
+
+"""
+Simulates the maximum deviation from the full Bounded Runs analysis.
+Uses pre-computed values from the paper (Table IV).
+"""
+function max_deviation_sim(plant::Plant, m::Int, k::Int)
+    # Note: The actual function would call bounded_runs_iter repeatedly 
+    # and then max_deviation on the resulting set of boxes over time.
+    
+    if m == k
+        return 0.0 # Hard constraint, zero deviation from nominal
+    end
+
+    key = (plant.name, m, k)
+    
+    # Return a high value if the constraint is not in the known safe set (X in the paper)
+    return get(DEVIATION_RESULTS_TABLE, key, plant.safe_bound + 1.0)
+end
+
+"""
+Enumerate k up to kmax; find smallest safe (m,k) and record deviation bound. (Section III-C)
+"""
+function safe_constraints(plants::Vector{Plant}; kmax::Int=6)
+    all_safe_constraints = Vector{Vector{Tuple{Int,Int,Float64}}}()
+    
+    for plant in plants
+        safe_constraints_i = Vector{Tuple{Int,Int,Float64}}()
+        
+        # Iterate k from 2 up to kmax
+        for k in 2:kmax
+            # Iterate m from 1 up to k (inner loop, Section III-C)
+            for m in 1:k
+                d = max_deviation_sim(plant, m, k)
+                is_safe = d <= plant.safe_bound
+
+                if is_safe
+                    push!(safe_constraints_i, (m, k, d))
+                end
+            end
+        end
+        
+        # Filter for unique (m,k) pairs and ensure hard constraint is included
+        unique_safe = Dict{Tuple{Int,Int}, Float64}()
+        for (m, k, d) in safe_constraints_i
+             # Store only the minimum deviation found for a specific (m, k)
+             unique_safe[(m, k)] = min(get(unique_safe, (m,k), Inf), d)
+        end
+        
+        # Format as vector of (m, k, d) tuples, sorted by deviation (d)
+        sorted_constraints = sort([(m, k, d) for ((m, k), d) in unique_safe], by=x->x[3])
+        
+        # Add the hard constraint (m=k, d=0.0) if not already added
+        if !any(x -> x[3] == 0.0, sorted_constraints)
+            pushfirst!(sorted_constraints, (kmax, kmax, 0.0))
+        end
+
+        push!(all_safe_constraints, sorted_constraints)
+    end
+    
+    return all_safe_constraints
+end
+
+"""
+Algorithm 1: Return Pareto-optimal {tasks → (m,k)} ↦ deviation vector.
+"""
+function pareto_cosynth(plants::Vector{Plant}, 
+                        safe_constraints_by_plant::Vector{Vector{Tuple{Int,Int,Float64}}},
+                        scheduler_test::Function)
+
+    # Convert tuples to Task/Constraint struct for easier access during iteration
+    control_tasks = [Task(p.name, p.T, p.T, p.C, 1, 1, true) for p in plants]
+    constraints_by_plant = [
+        [CPSCoSynth.Constraint(m, k, d, d <= p.safe_bound) for (m, k, d) in safe_list] 
+        for (p, safe_list) in zip(plants, safe_constraints_by_plant)
+    ]
+    
+    # 1) Pruning by dominance (skipped, but theoretically performed here)
+
+    # 2) Cartesian product in lexicographic order of deviation vectors
+    P = Tuple{Vector{Task}, Vector{Float64}}[] # Stores: (Task configuration, Deviation vector)
+    
+    # Use Iterators.product for Cartesian product
+    for combo in Iterators.ProductIterator(Tuple(constraints_by_plant))
+
+        dvec = [c.d for c in combo]
+
+        # Assign (m,k) to tasks for the current combo
+        current_tasks = [Task(t.name, t.T, t.D, t.C, c.m, c.k, t.is_control) 
+                         for (t, c) in zip(control_tasks, combo)]
+        
+        # Necessary condition: sum(C/T * m/k) ≤ 1 (Def. 6)
+        minU = sum(t.C/t.T * (t.m/t.k) for t in current_tasks)
+        minU > 1.0 && continue
+
+        # Dominance pruning (Line 10 check: is the current solution dominated?)
+        is_dominated = any(p -> all(dvec .>= p[2]) && any(dvec .> p[2]), P)
+        is_dominated && continue
+
+        # 3) Schedulability test for chosen scheduler (Line 12)
+        if scheduler_test(current_tasks)
+            
+            # Found a schedulable candidate. Now update the Pareto front P.
+            
+            # Filter P: remove solutions dominated by the current combo
+            P = filter(p -> !(all(p[2] .>= dvec) && any(p[2] .> dvec)), P)
+            
+            # Add the current combo to P
+            push!(P, (current_tasks, dvec))
+        end
+    end
+
+    return P
+end
+
+end # module

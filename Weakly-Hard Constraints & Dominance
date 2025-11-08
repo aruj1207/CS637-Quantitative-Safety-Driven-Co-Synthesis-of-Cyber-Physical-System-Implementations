@@ -1,0 +1,25 @@
+module WeaklyHard
+using LinearAlgebra
+export meets_mk, dominates
+
+"Check if a binary hit/miss window satisfies (m,k)."
+meets_mk(hits::AbstractVector{Bool}, m::Int, k::Int) =
+    sum(hits[end-k+1:end]) >= m
+
+"""
+Bernat-Burns-Liamosi dominance: (m1,k1) ⪯ (m2,k2) iff L(m1,k1) ⊆ L(m2,k2).
+(m1, k1) is stronger than (m2, k2) if it allows fewer miss patterns.
+Based on Theorem 5 from [37] (cited as Theorem 1 in the paper).
+"""
+function dominates(m1::Int, k1::Int, m2::Int, k2::Int)
+    # The condition is: m2 <= max(floor(q/k)*m, q + ceil(q/k)*(m - k))
+    q_div_k = k2 / k1
+    
+    # max{ A, B }
+    A = floor(q_div_k) * m1
+    B = k2 + ceil(q_div_k) * (m1 - k1)
+
+    return m2 <= max(A, B)
+end
+
+end

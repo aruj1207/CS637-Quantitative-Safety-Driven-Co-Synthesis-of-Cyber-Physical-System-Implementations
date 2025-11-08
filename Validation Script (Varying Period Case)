@@ -1,0 +1,37 @@
+using .CPSCoSynth
+using .CoSynthesis
+
+# 1. Initialize all plants and tasks (Varying Period Case, Section V-B)
+plants = all_control_tasks()
+
+# 2. Compute safe constraints (d_i <= d̄) using simulated analysis (Table IV lookup)
+safe_constraints_by_plant = safe_constraints(plants)
+
+# 3. Run the Co-Synthesis Optimization (Algorithm 1) using the Job-Class Scheduler
+println("Running Co-Synthesis for Varying Period Case (U_max=1.32)...")
+pareto_solutions = pareto_cosynth(plants, safe_constraints_by_plant, scheduler_jobclass_test)
+
+# 4. Report Results (Matching Table II style)
+println("\n" * "="^70)
+println("PARETO OPTIMAL SOLUTIONS (Job-Class Scheduler / Varying Periods)")
+println("="^70)
+
+if isempty(pareto_solutions)
+    println("No schedulable Pareto-optimal solutions found under the given heuristics.")
+else
+    # Headers
+    header = "  | O₁ | O₂ | O₃ | O₄ | O₅ | d₁ | d₂ | d₃ | d₄ | d₅ | U_min"
+    println(header)
+    println("-"^70)
+
+    for (k, sol) in enumerate(pareto_solutions)
+        tasks, dvec = sol
+        
+        # Extract Constraints and Deviations
+        O_str = join([string("(", t.m, "/", t.k, ")") for t in tasks], " | ")
+        D_str = join([string(round(d, digits=3)) for d in dvec], " | ")
+        U_min = sum(t.C/t.T * t.m/t.k for t in tasks)
+        
+        println(string(" $(k) | ", O_str, " | ", D_str, " | ", round(U_min, digits=3)))
+    end
+end

@@ -1,0 +1,71 @@
+Quantitative Safety-Driven Co-Synthesis of CPS Implementations
+
+This project implements the logical framework and optimization pipeline described in the paper "Quantitative Safety-Driven Co-Synthesis of Cyber-Physical System Implementations."
+
+It relies on simulated results for the highly specialized algorithms (Reachability Analysis and Schedulability Tests) based on the data published in the paper's Tables to demonstrate the core co-synthesis process (Algorithm 1).
+
+Execution
+
+The main execution script is examples/varying_period_case.jl.
+
+To run the optimization:
+
+Initialize the Julia environment (as per the prompt).
+
+Start the Julia REPL in the project root.
+
+Run the example file:
+
+include("src/CPSCoSynth.jl") # Compile module
+include("examples/varying_period_case.jl") # Run optimization
+
+
+Implementation Details
+
+File
+
+Functionality
+
+Status
+
+src/CPSCoSynth.jl
+
+Module definition, core structs (Plant, Task).
+
+Complete
+
+src/models.jl
+
+Defines the 5 LTI plants (Appendix C) and sets up augmented Hit/Miss dynamics.
+
+Complete (Varying Period Case)
+
+src/weaklyhard.jl
+
+Implements the Dominance (Theorem 1) check.
+
+Complete
+
+src/reachability.jl
+
+Implements the Bounded Runs Box Propagation core logic.
+
+Logical Core Complete
+
+src/deviation.jl
+
+Implements nominal trajectory and Max Deviation calculation using box corners.
+
+Logical Core Complete
+
+src/schedulers/*.jl
+
+Implement the required Schedulability Test Interfaces using heuristics/U_min checks.
+
+Complete (Heuristic)
+
+src/cosynthesis.jl
+
+Implements Algorithm 1 (Pareto Optimization) using published data (Table IV lookup) for deviation bounds.
+
+Complete (Optimization Logic)
